@@ -2,7 +2,6 @@
 import express from "express";
 import cors from "cors";
 import dotenv from "dotenv";
-
 dotenv.config();
 
 const app = express();
@@ -11,7 +10,15 @@ app.use(express.json());
 app.use(express.static("public"));
 
 const OPENAI_API_KEY = process.env.OPENAI_API_KEY;
-const OPENAI_MODEL  = process.env.OPENAI_MODEL || "gpt-4.1-mini";
+// Varsayılan model .env’den ya da gpt-4.1-mini
+const DEFAULT_MODEL  = process.env.OPENAI_MODEL || "gpt-4.1-mini";
+
+// İzinli modeller (istediğin gibi genişletebilirsin)
+const ALLOWED_MODELS = new Set([
+  "gpt-4.1-mini",  // ChatGPT mini
+  "o4-mini",       // Mini o4 (OpenAI'nin hızlı-ucuz multimodal türevi)
+  // "gpt-4o-mini"  // istersen bunu da ekleyebilirsin
+]);
 
 function validatePayload(text, direction){
   if (!text || typeof text !== "string" || !text.trim()) return "Boş metin";
@@ -21,18 +28,21 @@ function validatePayload(text, direction){
 
 app.post("/api/translate", async (req, res) => {
   try {
-    if (!OPENAI_API_KEY) {
-      return res.status(500).json({ error: "OPENAI_API_KEY eksik (Vercel env)" });
-    }
-    const { text, direction } = req.body || {};
+    if (!OPENAI_API_KEY) return res.status(500).json({ error: "OPENAI_API_KEY eksik (Vercel env)" });
+
+    const { text, direction, model } = req.body || {};
     const err = validatePayload(text, direction);
     if (err) return res.status(400).json({ error: err });
+
+    // Model seçimi: body’den gelen izinliyse onu, yoksa DEFAULT
+    const chosenModel = ALLOWED_MODELS.has(model) ? model : DEFAULT_MODEL;
 
     const source = direction === "tr2en" ? "Turkish" : "English";
     const target = direction === "tr2en" ? "English" : "Turkish";
 
-    const system = `You are a professional ${source}<->${target} translator. Preserve numbers, code blocks, URLs, usernames, mentions, emojis, product names and formatting. Do not add or omit meaning. If the text is a list or has line breaks, keep them. If the input already contains both languages, translate only the parts in ${source}.`;
-    const user = `Translate from ${source} to ${target}.\n\nINPUT:\n${text}`;
+    // kısa ve hızlı prompt
+    const system = `Professional ${source}<->${target} translator. Keep formatting, no hallucinations.`;
+    const user   = `Translate from ${source} to ${target}:\n\n${text}`;
 
     const r = await fetch("https://api.openai.com/v1/responses", {
       method: "POST",
@@ -41,7 +51,7 @@ app.post("/api/translate", async (req, res) => {
         "Authorization": `Bearer ${OPENAI_API_KEY}`
       },
       body: JSON.stringify({
-        model: OPENAI_MODEL,
+        model: chosenModel,
         input: [
           { role: "system", content: system },
           { role: "user", content: user }
@@ -57,21 +67,20 @@ app.post("/api/translate", async (req, res) => {
     const output =
       data?.output?.[0]?.content?.[0]?.text ||
       data?.content?.[0]?.text ||
-      data?.output_text ||
-      "";
+      data?.output_text || "";
 
-    res.json({ translation: output });
+    res.json({ translation: output, model: chosenModel });
   } catch (e) {
     console.error(e);
     res.status(500).json({ error: "Sunucu hatası" });
   }
 });
 
-// Lokal geliştirme için
+// Lokal geliştirme
 const PORT = process.env.PORT || 8787;
 if (!process.env.VERCEL) {
   app.listen(PORT, () => console.log(`Local: http://localhost:${PORT}`));
 }
 
-// Vercel serverless
+// Vercel serverless handler
 export default app;
