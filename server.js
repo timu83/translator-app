@@ -1,7 +1,6 @@
-// server.js
+// server.js (ESM)
 import express from "express";
 import cors from "cors";
-import fetch from "node-fetch";
 import dotenv from "dotenv";
 
 dotenv.config();
@@ -12,7 +11,7 @@ app.use(express.json());
 app.use(express.static("public"));
 
 const OPENAI_API_KEY = process.env.OPENAI_API_KEY;
-const OPENAI_MODEL = process.env.OPENAI_MODEL || "gpt-4.1-mini";
+const OPENAI_MODEL  = process.env.OPENAI_MODEL || "gpt-4.1-mini";
 
 function validatePayload(text, direction){
   if (!text || typeof text !== "string" || !text.trim()) return "Boş metin";
@@ -23,7 +22,7 @@ function validatePayload(text, direction){
 app.post("/api/translate", async (req, res) => {
   try {
     if (!OPENAI_API_KEY) {
-      return res.status(500).json({ error: "OPENAI_API_KEY eksik (env)" });
+      return res.status(500).json({ error: "OPENAI_API_KEY eksik (Vercel env)" });
     }
     const { text, direction } = req.body || {};
     const err = validatePayload(text, direction);
@@ -51,12 +50,10 @@ app.post("/api/translate", async (req, res) => {
     });
 
     const raw = await r.text();
-    if (!r.ok) {
-      return res.status(500).json({ error: "OpenAI API hatası", detail: raw });
-    }
-    // Responses API’den metni güvenli çıkar
-    let data;
-    try { data = JSON.parse(raw); } catch { data = {}; }
+    if (!r.ok) return res.status(500).json({ error: "OpenAI API hatası", detail: raw });
+
+    let data = {};
+    try { data = JSON.parse(raw); } catch {}
     const output =
       data?.output?.[0]?.content?.[0]?.text ||
       data?.content?.[0]?.text ||
@@ -70,12 +67,11 @@ app.post("/api/translate", async (req, res) => {
   }
 });
 
-// --- Vercel ile lokal ayrımı ---
+// Lokal geliştirme için
 const PORT = process.env.PORT || 8787;
-if (process.env.VERCEL) {
-  // Vercel'de serverless handler export et
-  export default app;
-} else {
-  // Lokal geliştirme
-  app.listen(PORT, () => console.log(`Server http://localhost:${PORT}`));
+if (!process.env.VERCEL) {
+  app.listen(PORT, () => console.log(`Local: http://localhost:${PORT}`));
 }
+
+// Vercel serverless
+export default app;
